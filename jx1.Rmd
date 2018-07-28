@@ -59,24 +59,22 @@ jx_srav2 <- read_junction_annotation('srav2')
 ```
 
 ```{r cumulative_plot}
-prepare_cumulative <- function(jxs) {
+prepare_cumulative <- function(jxs, ann='gC38') {
     jxs %>% group_by(samples_count) %>% 
         summarise(
-            neither  = sum((left_annotated == '0') &  (right_annotated == '0')),
-            one      = sum((left_annotated == '0') != (right_annotated == '0')),
-            both_ann = sum((left_annotated != '0') &  (right_annotated != '0') & annotated == 1),
-            both_un  = sum((left_annotated != '0') &  (right_annotated != '0') & annotated == 0),
-            totlen   = sum(as.numeric(length)),
-            n=n()) %>%
+            neither  = sum(!grepl(ann, left_annotated) &  !grepl(ann, right_annotated)),
+            one      = sum( grepl(ann, left_annotated) !=  grepl(ann, right_annotated)),
+            both_un  = sum( grepl(ann, left_annotated) &   grepl(ann, right_annotated) & annotated == 0),
+            both_ann = sum(annotated == 1),
+            n        = n()) %>%
         mutate(
             ann_cum = both_ann,       both_cum = ann_cum + both_un,
             one_cum = both_cum + one, neither_cum  = one_cum + neither) %>%
-        select(samples_count, ann_cum, both_cum, one_cum, neither_cum, totlen, n) %>%
+        select(samples_count, ann_cum, both_cum, one_cum, neither_cum, n) %>%
         arrange(desc(samples_count)) %>%
         mutate(
             ann_cum=cumsum(ann_cum), both_cum=cumsum(both_cum),
-            one_cum=cumsum(one_cum), neither_cum=cumsum(neither_cum),
-            avg_length=cumsum(totlen)/cumsum(n)) %>%
+            one_cum=cumsum(one_cum), neither_cum=cumsum(neither_cum)) %>%
         gather(category, count, ann_cum, both_cum, one_cum, neither_cum)
 }
 ```
@@ -140,17 +138,17 @@ annotation_table(jx_srav2_cumulative)
 ```
 
 ```{r prepare_cumulative_length}
-prepare_cumulative_length <- function(jxs) {
+prepare_cumulative_length <- function(jxs, ann='gC38') {
     jxs %>% group_by(samples_count) %>%
         summarise(
-            neither      = sum((left_annotated == '0') &  (right_annotated == '0')),
-            one          = sum((left_annotated == '0') != (right_annotated == '0')),
-            both_ann     = sum((left_annotated != '0') &  (right_annotated != '0') & annotated == 1),
-            both_un      = sum((left_annotated != '0') &  (right_annotated != '0') & annotated == 0),
-            neither_len  = sum(as.numeric(length[(left_annotated == '0') &  (right_annotated == '0')])),
-            one_len      = sum(as.numeric(length[(left_annotated == '0') != (right_annotated == '0')])),
-            both_ann_len = sum(as.numeric(length[(left_annotated != '0') &  (right_annotated != '0') & annotated == 1])),
-            both_un_len  = sum(as.numeric(length[(left_annotated != '0') &  (right_annotated != '0') & annotated == 0])),
+            neither      = sum(!grepl(ann, left_annotated) &  !grepl(ann, right_annotated)),
+            one          = sum( grepl(ann, left_annotated) !=  grepl(ann, right_annotated)),
+            both_un      = sum( grepl(ann, left_annotated) &   grepl(ann, right_annotated) & annotated == 0),
+            both_ann     = sum(annotated == 1),
+            neither_len  = sum(as.numeric(length[!grepl(ann, left_annotated) &  !grepl(ann, right_annotated)])),
+            one_len      = sum(as.numeric(length[ grepl(ann, left_annotated) !=  grepl(ann, right_annotated)])),
+            both_un_len  = sum(as.numeric(length[ grepl(ann, left_annotated) &   grepl(ann, right_annotated) & annotated == 0])),
+            both_ann_len = sum(as.numeric(length[annotated == 1])),
             n=n()) %>%
         arrange(desc(samples_count)) %>%
         mutate(
