@@ -10,6 +10,7 @@
 
 ENV['VAGRANT_DEFAULT_PROVIDER'] = 'aws'
 REGION = "us-east-1"
+PUBLIC_IP = "54.208.74.74"
 
 Vagrant.configure("2") do |config|
 
@@ -23,14 +24,13 @@ Vagrant.configure("2") do |config|
         aws.instance_type = "r5.4xlarge"
         aws.keypair_name = "tidy"
         aws.subnet_id = "subnet-1fc8de7a"
-        # allows 22, 80 and 443
-        aws.security_groups = ["sg-38c9a872"]
+        aws.security_groups = ["sg-38c9a872"]  # allows 22, 80 and 443
         aws.associate_public_ip = true
-        aws.elastic_ip = false
+        aws.elastic_ip = PUBLIC_IP
         aws.block_device_mapping = [{
             'DeviceName' => "/dev/sdf",
             'VirtualName' => "ephemeral0",
-            'Ebs.VolumeSize' => 750,
+            'Ebs.VolumeSize' => 400,
             'Ebs.DeleteOnTermination' => true,
             'Ebs.VolumeType' => 'gp2'
         }]
@@ -54,29 +54,29 @@ Vagrant.configure("2") do |config|
     config.vm.provision "file", source: "~/.aws/tidy.pem", destination: "~ec2-user/.ssh/id_rsa"
 
     config.vm.provision "shell", privileged: true, name: "install Linux packages", inline: <<-SHELL
-        yum install -q -y wget tree
+        yum install -q -y wget tree git
     SHELL
 
-    config.vm.provision "shell", privileged: false, name: "docker run tidy", inline: <<-SHELL
-        mkdir /work/snaptron-data
+    config.vm.provision "shell", privileged: false, name: "clone repo", inline: <<-SHELL
+        mkdir -p /work/git
+        cd /work/git
+        git clone https://github.com/BenLangmead/snaptron-data.git
+    SHELL
+
+    config.vm.provision "shell", privileged: false, name: "get Snaptron data", inline: <<-SHELL
+        mkdir -p /work/snaptron-data
         cd /work/snaptron-data
-        for j in ct_h_s ct_m_s supermouse encode1159 srav1 srav2 gtex tcga ; do
-            if [ ! -d $j ] ; then
-                mkdir -p $j
-                for i in junctions.bgz samples.tsv ; do
-                    wget -O $j/$i http://snaptron.cs.jhu.edu/data/$j/$i
-                done
-                if [ $j != "srav1" ] ; then
-                    wget -O $j/genes.bgz http://snaptron.cs.jhu.edu/data/$j/genes.bgz
-                fi
-            fi
-        done
-        tree
+        /work/git/snaptron-data/get.sh
+        tree /work/snaptron-data
     SHELL
 
     config.vm.provision "shell", privileged: true, name: "docker run tidy", inline: <<-SHELL
+        mkdir -p /work/tmp
+        chmod a+rwx /work/tmp
         docker run --name tidy --rm \
             -v /work:/work \
-            -p 80:8787 -d rocker/tidyverse:3.5.1
+            -e TMP:/work/tmp \
+            -p 80:8787 \
+            -d rocker/tidyverse:3.5.1
     SHELL
 end
