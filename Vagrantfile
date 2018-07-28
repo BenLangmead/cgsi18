@@ -61,6 +61,7 @@ Vagrant.configure("2") do |config|
         mkdir -p /work/git
         cd /work/git
         git clone https://github.com/BenLangmead/snaptron-data.git
+        chmod -R a+rwx .
     SHELL
 
     config.vm.provision "shell", privileged: false, name: "get Snaptron data", inline: <<-SHELL
@@ -68,6 +69,8 @@ Vagrant.configure("2") do |config|
         cd /work/snaptron-data
         /work/git/snaptron-data/get.sh
         tree /work/snaptron-data
+        chmod -R a+r .
+        chmod -R a-w .
     SHELL
 
     config.vm.provision "shell", privileged: true, name: "docker run tidy", inline: <<-SHELL
@@ -75,8 +78,9 @@ Vagrant.configure("2") do |config|
         chmod a+rwx /work/tmp
         docker run --name tidy --rm \
             -v /work:/work \
-            -e TMP:/work/tmp \
+            -e TMPDIR=/work/tmp \
             -p 80:8787 \
-            -d rocker/tidyverse:3.5.1
+            -d rocker/tidyverse:3.5.1 \
+            /bin/bash -c 'echo "TMPDIR=/work/tmp" >> /usr/local/lib/R/etc/Renviron && echo "setwd(\"/work/snaptron-data\")" >> /usr/local/lib/R/etc/Rprofile.site && /init'
     SHELL
 end
