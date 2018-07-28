@@ -15,6 +15,10 @@ library(ggplot2)
 knitr::opts_knit$set(root.dir = '/work/snaptron-data')
 ```
 
+```{r getwd}
+getwd()
+```
+
 ```{r read_metadata}
 read_metadata <- function(project) {
     fread(file.path(project, 'samples.tsv'), sep='\t', header=T, quote="")
@@ -38,7 +42,7 @@ read_junction_annotation <- function(project) {
     colnms <- colnms[col_select]
     jx_fn <- file.path(project, 'junctions.bgz')
     cmd <- paste0(
-        "gzip -dc ", jx_fn, " | cut -d$'\t' -f",
+        "gzip -dc ", jx_fn, " | cut -f",
         paste(col_select, collapse=','))
     jxs <- fread(cmd, sep='\t', header=F)
     colnames(jxs) <- colnms
@@ -62,15 +66,17 @@ prepare_cumulative <- function(jxs) {
             one      = sum((left_annotated == '0') != (right_annotated == '0')),
             both_ann = sum((left_annotated != '0') &  (right_annotated != '0') & annotated == 1),
             both_un  = sum((left_annotated != '0') &  (right_annotated != '0') & annotated == 0),
+            totlen   = sum(as.numeric(length)),
             n=n()) %>%
         mutate(
             ann_cum = both_ann,       both_cum = ann_cum + both_un,
             one_cum = both_cum + one, neither_cum  = one_cum + neither) %>%
-        select(samples_count, ann_cum, both_cum, one_cum, neither_cum) %>%
+        select(samples_count, ann_cum, both_cum, one_cum, neither_cum, totlen, n) %>%
         arrange(desc(samples_count)) %>%
         mutate(
             ann_cum=cumsum(ann_cum), both_cum=cumsum(both_cum),
-            one_cum=cumsum(one_cum), neither_cum=cumsum(neither_cum)) %>%
+            one_cum=cumsum(one_cum), neither_cum=cumsum(neither_cum),
+            avg_length=cumsum(totlen)/cumsum(n)) %>%
         gather(category, count, ann_cum, both_cum, one_cum, neither_cum)
 }
 ```
@@ -85,9 +91,13 @@ jx_srav2_cumulative <- prepare_cumulative(jx_srav2)
 
 ```{r}
 cumulative_plot <- function(jx_cumulative) {
+    jx_cumulative$category <- plyr::mapvalues(jx_cumulative$category,
+        c('ann_cum', 'both_cum', 'neither_cum', 'one_cum'),
+        c('Annotated', 'Exon Skip', 'Neither Annotated', 'One Annotated'))
     ggplot(jx_cumulative, aes(x=samples_count, y=count, color=category)) + 
         geom_line() +
-        coord_cartesian(ylim=c(0, 1000000)) +
+        coord_cartesian(xlim=c(0, max(jx_cumulative$samples_count)*0.5), ylim=c(0, 750000)) +
+        labs(x='Jxs appearing in at least this # samples', y='Count') +
         theme_bw()
 }
 ```
@@ -103,7 +113,7 @@ cumulative_plot(jx_srav2_cumulative)
 
 ```{r annotation_table}
 annotation_table <- function(jxs, cutoffs=c(0.01, 0.02, 0.05, 0.10, 0.20, 0.33, 0.5, 0.75)) {
-    counts <- sapply(cutoffs, function(x) { ceil(max(jxs$samples_count)*x) } )
+    counts <- sapply(cutoffs, function(x) { ceiling(max(jxs$samples_count)*x) } )
     jx_cutoffs <- jxs %>%
         filter(samples_count %in% counts) %>%
         spread(category, count) %>%
@@ -127,4 +137,55 @@ annotation_table(jx_srav1_cumulative)
 
 ```{r annotation_table_srav2}
 annotation_table(jx_srav2_cumulative)
+```
+
+```{r prepare_cumulative_length}
+prepare_cumulative_length <- function(jxs) {
+    jxs %>% group_by(samples_count) %>%
+        summarise(
+            neither      = sum((left_annotated == '0') &  (right_annotated == '0')),
+            one          = sum((left_annotated == '0') != (right_annotated == '0')),
+            both_ann     = sum((left_annotated != '0') &  (right_annotated != '0') & annotated == 1),
+            both_un      = sum((left_annotated != '0') &  (right_annotated != '0') & annotated == 0),
+            neither_len  = sum(as.numeric(length[(left_annotated == '0') &  (right_annotated == '0')])),
+            one_len      = sum(as.numeric(length[(left_annotated == '0') != (right_annotated == '0')])),
+            both_ann_len = sum(as.numeric(length[(left_annotated != '0') &  (right_annotated != '0') & annotated == 1])),
+            both_un_len  = sum(as.numeric(length[(left_annotated != '0') &  (right_annotated != '0') & annotated == 0])),
+            n=n()) %>%
+        arrange(desc(samples_count)) %>%
+        mutate(
+            neither_avg_len=cumsum(neither_len)/cumsum(neither),
+            one_avg_len=cumsum(one_len)/cumsum(one),
+            both_ann_avg_len=cumsum(both_ann_len)/cumsum(both_ann),
+            both_un_avg_len=cumsum(both_un_len)/cumsum(both_un)) %>%
+        gather(category, avglen, both_ann_avg_len, both_un_avg_len, one_avg_len, neither_avg_len)
+}
+```
+
+```{r prepare_cumulative_length_srav1}
+jx_srav1_len <- prepare_cumulative_length(jx_srav1)
+```
+
+```{r prepare_cumulative_length_srav2}
+jx_srav2_len <- prepare_cumulative_length(jx_srav2)
+```
+
+```{r plot_cumulative_length}
+cumulative_length_plot <- function(jx_len) {
+    jx_len$category <- plyr::mapvalues(jx_len$category,
+        c('both_ann_avg_len', 'both_un_avg_len', 'neither_avg_len', 'one_avg_len'),
+        c('Annotated', 'Exon Skip', 'Neither Annotated', 'One Annotated'))
+    ggplot(jx_len, aes(x=samples_count, y=avglen, color=category)) +
+        geom_line() +
+        labs(x='Jxs appearing in at least this # samples', y='Avg length') +
+        theme_bw()
+}
+```
+
+```{r plot_cumulative_length_srav1}
+cumulative_length_plot(jx_srav1_len)
+```
+
+```{r plot_cumulative_length_srav2}
+cumulative_length_plot(jx_srav2_len)
 ```
