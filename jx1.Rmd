@@ -1,0 +1,130 @@
+---
+title: "junction_exploration_1"
+output: html_document
+---
+
+```{r}
+library(data.table)
+library(tidyr)
+library(plyr)
+library(dplyr)
+library(ggplot2)
+```
+
+```{r setup}
+knitr::opts_knit$set(root.dir = '/work/snaptron-data')
+```
+
+```{r read_metadata}
+read_metadata <- function(project) {
+    fread(file.path(project, 'samples.tsv'), sep='\t', header=T, quote="")
+}
+```
+
+```{r read_junctions}
+read_junctions <- function(project) {
+    colnms <- scan(file.path(project, 'junctions.header.tsv'), what='character')
+    jx_fn <- file.path(project, 'junctions.bgz')
+    jxs <- fread(paste('gzip -dc', jx_fn), sep='\t', header=F)
+    colnames(jxs) <- colnms
+    jxs
+}
+```
+
+```{r read_junction_annotation}
+read_junction_annotation <- function(project) {
+    col_select <- c(5, 7, 10, 11, 13, 14, 15, 16)
+    colnms <- scan(file.path(project, 'junctions.header.tsv'), what='character')
+    colnms <- colnms[col_select]
+    jx_fn <- file.path(project, 'junctions.bgz')
+    cmd <- paste0(
+        "gzip -dc ", jx_fn, " | cut -d$'\t' -f",
+        paste(col_select, collapse=','))
+    jxs <- fread(cmd, sep='\t', header=F)
+    colnames(jxs) <- colnms
+    jxs
+}
+```
+
+```{r jx_read_srav1}
+jx_srav1 <- read_junction_annotation('srav1')
+```
+
+```{r jx_read_srav2}
+jx_srav2 <- read_junction_annotation('srav2')
+```
+
+```{r cumulative_plot}
+prepare_cumulative <- function(jxs) {
+    jxs %>% group_by(samples_count) %>% 
+        summarise(
+            neither  = sum((left_annotated == '0') &  (right_annotated == '0')),
+            one      = sum((left_annotated == '0') != (right_annotated == '0')),
+            both_ann = sum((left_annotated != '0') &  (right_annotated != '0') & annotated == 1),
+            both_un  = sum((left_annotated != '0') &  (right_annotated != '0') & annotated == 0),
+            n=n()) %>%
+        mutate(
+            ann_cum = both_ann,       both_cum = ann_cum + both_un,
+            one_cum = both_cum + one, neither_cum  = one_cum + neither) %>%
+        select(samples_count, ann_cum, both_cum, one_cum, neither_cum) %>%
+        arrange(desc(samples_count)) %>%
+        mutate(
+            ann_cum=cumsum(ann_cum), both_cum=cumsum(both_cum),
+            one_cum=cumsum(one_cum), neither_cum=cumsum(neither_cum)) %>%
+        gather(category, count, ann_cum, both_cum, one_cum, neither_cum)
+}
+```
+
+```{r jx_srav1_cumulative}
+jx_srav1_cumulative <- prepare_cumulative(jx_srav1)
+```
+
+```{r jx_srav2_cumulative}
+jx_srav2_cumulative <- prepare_cumulative(jx_srav2)
+```
+
+```{r}
+cumulative_plot <- function(jx_cumulative) {
+    ggplot(jx_cumulative, aes(x=samples_count, y=count, color=category)) + 
+        geom_line() +
+        coord_cartesian(ylim=c(0, 1000000)) +
+        theme_bw()
+}
+```
+
+```{r cum_plot_srav1}
+cumulative_plot(jx_srav1_cumulative)
+```
+
+```{r cum_plot_srav2}
+cumulative_plot(jx_srav2_cumulative)
+```
+
+
+```{r annotation_table}
+annotation_table <- function(jxs, cutoffs=c(0.01, 0.02, 0.05, 0.10, 0.20, 0.33, 0.5, 0.75)) {
+    counts <- sapply(cutoffs, function(x) { ceil(max(jxs$samples_count)*x) } )
+    jx_cutoffs <- jxs %>%
+        filter(samples_count %in% counts) %>%
+        spread(category, count) %>%
+        mutate(
+            ann_pct=ann_cum*100.0/neither_cum,
+            both_pct=(both_cum-ann_cum)*100.0/neither_cum,
+            one_pct=(one_cum-both_cum)*100.0/neither_cum,
+            neither_pct=(neither_cum-both_cum)*100.0/neither_cum) %>%
+        select(ann_pct, both_pct, one_pct, neither_pct)
+    jx_cutoffs$pcts <- cutoffs * 100
+    colnames(jx_cutoffs) <- c(
+        'Annotated', 'ExonSkip', 'OneAnnotated',
+        'NeitherAnnotated', 'PercentOfSamples')
+    jx_cutoffs
+}
+```
+
+```{r annotation_table_srav1}
+annotation_table(jx_srav1_cumulative)
+```
+
+```{r annotation_table_srav2}
+annotation_table(jx_srav2_cumulative)
+```
