@@ -13,7 +13,8 @@ for j in ${DATASETS} ; do
             FNS="genes.header.tsv genes.bgz ${FNS}"
         fi
         for i in ${FNS} ; do
-            wget -O ${j}/${i} ${URL}/${j}/${i}
+            echo "Downloading ${URL}/${j}/${i}..."
+            wget -q -O ${j}/${i} ${URL}/${j}/${i}
         done
     fi
 done
