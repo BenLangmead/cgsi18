@@ -11,31 +11,26 @@ library(dplyr)
 library(ggplot2)
 ```
 
+Change this to the base directory of where you downloaded the Snaptron data.  Use the `get.sh` script to obtain the Snaptron data:
+
 ```{r setup}
-knitr::opts_knit$set(root.dir = '/work/snaptron-data')
+# pre-computed
+knitr::opts_knit$set(root.dir = '~/snaptron_data')
 ```
 
-```{r getwd}
-getwd()
-```
+Read a Snaptron-style metadata file.
 
 ```{r read_metadata}
+# pre-computed
 read_metadata <- function(project) {
     fread(file.path(project, 'samples.tsv'), sep='\t', header=T, quote="")
 }
 ```
 
-```{r read_junctions}
-read_junctions <- function(project) {
-    colnms <- scan(file.path(project, 'junctions.header.tsv'), what='character')
-    jx_fn <- file.path(project, 'junctions.bgz')
-    jxs <- fread(paste('gzip -dc', jx_fn), sep='\t', header=F)
-    colnames(jxs) <- colnms
-    jxs
-}
-```
+Read a Snaptron-style junction-evidence matrix, while removing unnecessary columns.
 
 ```{r read_junction_annotation}
+# pre-computed
 read_junction_annotation <- function(project) {
     col_select <- c(5, 7, 10, 11, 13, 14, 15, 16)
     colnms <- scan(file.path(project, 'junctions.header.tsv'), what='character')
@@ -50,17 +45,28 @@ read_junction_annotation <- function(project) {
 }
 ```
 
-```{r jx_read_srav1}
-jx_srav1 <- read_junction_annotation('srav1')
-```
+Grab the junctions for the set of >50K samples from SRA.
 
-```{r jx_read_srav2}
+```{r jx_read_srav2_data}
+# pre-computed
 jx_srav2 <- read_junction_annotation('srav2')
 ```
 
+```{r jx_read_srav2_metadata}
+meta_srav2 <- read_metadata('srav2')
+```
+
+```{r size}
+print(paste('# junctions:', nrow(jx_srav2)))
+print(paste('# samples:', nrow(meta_srav2)))
+```
+
+Prepare the data for the cumulative-annotated plot shown in Fig 2a of the [Intropolis paper](https://doi.org/10.1186/s13059-016-1118-6).  Our plot will be different as we're using the (bigger) SRAv2 dataset and because we're only considering the GENCODE annotation.
+
 ```{r cumulative_plot}
+# pre-computed
 prepare_cumulative <- function(jxs, ann='gC38') {
-    jxs %>% group_by(samples_count) %>% 
+    jxs %>% group_by(samples_count) %>%
         summarise(
             neither  = sum(!grepl(ann, left_annotated) &  !grepl(ann, right_annotated)),
             one      = sum( grepl(ann, left_annotated) !=  grepl(ann, right_annotated)),
@@ -79,20 +85,19 @@ prepare_cumulative <- function(jxs, ann='gC38') {
 }
 ```
 
-```{r jx_srav1_cumulative}
-jx_srav1_cumulative <- prepare_cumulative(jx_srav1)
-```
-
 ```{r jx_srav2_cumulative}
+# pre-computed
 jx_srav2_cumulative <- prepare_cumulative(jx_srav2)
 ```
+
+Make the cumulative-annotated plot.
 
 ```{r}
 cumulative_plot <- function(jx_cumulative) {
     jx_cumulative$category <- plyr::mapvalues(jx_cumulative$category,
         c('ann_cum', 'both_cum', 'neither_cum', 'one_cum'),
         c('Annotated', 'Exon Skip', 'Neither Annotated', 'One Annotated'))
-    ggplot(jx_cumulative, aes(x=samples_count, y=count, color=category)) + 
+    ggplot(jx_cumulative, aes(x=samples_count, y=count, color=category)) +
         geom_line() +
         coord_cartesian(xlim=c(0, max(jx_cumulative$samples_count)*0.5), ylim=c(0, 750000)) +
         labs(x='Jxs appearing in at least this # samples', y='Count') +
@@ -100,14 +105,11 @@ cumulative_plot <- function(jx_cumulative) {
 }
 ```
 
-```{r cum_plot_srav1}
-cumulative_plot(jx_srav1_cumulative)
-```
-
 ```{r cum_plot_srav2}
 cumulative_plot(jx_srav2_cumulative)
 ```
 
+Because the cumulative-annotated plot makes it hard to discern particular percentages, we summarize some in a table.
 
 ```{r annotation_table}
 annotation_table <- function(jxs, cutoffs=c(0.01, 0.02, 0.05, 0.10, 0.20, 0.33, 0.5, 0.75)) {
@@ -129,61 +131,6 @@ annotation_table <- function(jxs, cutoffs=c(0.01, 0.02, 0.05, 0.10, 0.20, 0.33, 
 }
 ```
 
-```{r annotation_table_srav1}
-annotation_table(jx_srav1_cumulative)
-```
-
 ```{r annotation_table_srav2}
 annotation_table(jx_srav2_cumulative)
-```
-
-```{r prepare_cumulative_length}
-prepare_cumulative_length <- function(jxs, ann='gC38') {
-    jxs %>% group_by(samples_count) %>%
-        summarise(
-            neither      = sum(!grepl(ann, left_annotated) &  !grepl(ann, right_annotated)),
-            one          = sum( grepl(ann, left_annotated) !=  grepl(ann, right_annotated)),
-            both_un      = sum( grepl(ann, left_annotated) &   grepl(ann, right_annotated) & annotated == 0),
-            both_ann     = sum(annotated == 1),
-            neither_len  = sum(as.numeric(length[!grepl(ann, left_annotated) &  !grepl(ann, right_annotated)])),
-            one_len      = sum(as.numeric(length[ grepl(ann, left_annotated) !=  grepl(ann, right_annotated)])),
-            both_un_len  = sum(as.numeric(length[ grepl(ann, left_annotated) &   grepl(ann, right_annotated) & annotated == 0])),
-            both_ann_len = sum(as.numeric(length[annotated == 1])),
-            n=n()) %>%
-        arrange(desc(samples_count)) %>%
-        mutate(
-            neither_avg_len=cumsum(neither_len)/cumsum(neither),
-            one_avg_len=cumsum(one_len)/cumsum(one),
-            both_ann_avg_len=cumsum(both_ann_len)/cumsum(both_ann),
-            both_un_avg_len=cumsum(both_un_len)/cumsum(both_un)) %>%
-        gather(category, avglen, both_ann_avg_len, both_un_avg_len, one_avg_len, neither_avg_len)
-}
-```
-
-```{r prepare_cumulative_length_srav1}
-jx_srav1_len <- prepare_cumulative_length(jx_srav1)
-```
-
-```{r prepare_cumulative_length_srav2}
-jx_srav2_len <- prepare_cumulative_length(jx_srav2)
-```
-
-```{r plot_cumulative_length}
-cumulative_length_plot <- function(jx_len) {
-    jx_len$category <- plyr::mapvalues(jx_len$category,
-        c('both_ann_avg_len', 'both_un_avg_len', 'neither_avg_len', 'one_avg_len'),
-        c('Annotated', 'Exon Skip', 'Neither Annotated', 'One Annotated'))
-    ggplot(jx_len, aes(x=samples_count, y=avglen, color=category)) +
-        geom_line() +
-        labs(x='Jxs appearing in at least this # samples', y='Avg length') +
-        theme_bw()
-}
-```
-
-```{r plot_cumulative_length_srav1}
-cumulative_length_plot(jx_srav1_len)
-```
-
-```{r plot_cumulative_length_srav2}
-cumulative_length_plot(jx_srav2_len)
 ```
