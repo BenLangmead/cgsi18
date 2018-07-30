@@ -1,9 +1,12 @@
 ---
 title: "recount2_data"
-output: html_notebook
+output:
+  html_document: default
+  html_notebook: default
 ---
 
 ```{r}
+# pre-computed
 library('recount')
 library('DESeq2')
 library('regionReport')
@@ -12,6 +15,7 @@ library('regionReport')
 Say we already have a project of interest, possibly because we searched for it in the [Shiny interface](https://jhubiostatistics.shinyapps.io/recount/).  Let's download it and load its gene expression summary:
 
 ```{r}
+# pre-computed
 project_info <- abstract_search('GSE32465')
 download_study(project_info$project)
 load(file.path(project_info$project, 'rse_gene.Rdata'))
@@ -23,16 +27,17 @@ recount can open a link to the SRA metadata page for the study, which can be hel
 browse_study(project_info$project)
 ```
 
+We can extract metadata from GEO. GEO sometimes has more complete and useful metadata relative to SRA.
+
 ```{r}
-## Extract the sample characteristics
+# pre-computed
 geochar <- lapply(split(colData(rse_gene), seq_len(nrow(colData(rse_gene)))), geo_characteristics)
 ```
 
 This study requires a little massaging to get metadata expressed in terms we can use:
 
 ```{r}
-## Note that the information for this study is a little inconsistent, so we
-## have to fix it.
+# pre-computed
 geochar <- do.call(rbind, lapply(geochar, function(x) {
     if('cells' %in% colnames(x)) {
         colnames(x)[colnames(x) == 'cells'] <- 'cell.line'
@@ -42,7 +47,6 @@ geochar <- do.call(rbind, lapply(geochar, function(x) {
     }
 }))
 
-## We can now define some sample information to use
 sample_info <- data.frame(
     run = colData(rse_gene)$run,
     group = ifelse(grepl('uninduced', colData(rse_gene)$title), 'uninduced', 'induced'),
@@ -55,12 +59,14 @@ sample_info <- data.frame(
 We apply some mild normalization to account for varying sequencing depth across samples:
 
 ```{r}
+# pre-computed
 rse <- scale_counts(rse_gene)
 ```
 
 We augment the metadata with the variables we want to use for differential expression analysis:
 
 ```{r}
+# pre-computed
 colData(rse)$group <- sample_info$group
 colData(rse)$gene_target <- sample_info$gene_target
 ```
@@ -68,16 +74,25 @@ colData(rse)$gene_target <- sample_info$gene_target
 Use DESeq2 to perform differential expression analysis
 
 ```{r}
+# pre-computed
 dds <- DESeqDataSet(rse, ~ gene_target + group)
 dds <- DESeq(dds, test = 'LRT', reduced = ~ gene_target, fitType = 'local')
 res <- results(dds)
 ```
 
-## Explore results
-plotMA(res, main="DESeq2 results for SRP009615")
+Now we have a full set of differential expression results.  One relevant result is the MA plot:
 
-## Make a report with the results
-DESeq2Report(dds, res = res, project = 'SRP009615',
-    intgroup = c('group', 'gene_target'), outdir = '.',
-    output = 'SRP009615-results')
+```{r}
+plotMA(res, main="DESeq2 results for SRP009615")
+```
+
+But we can also ask for a full report with many details (that won't show up nicely in this notebook):
+
+```{r}
+full_report <- F
+if(full_report) {
+    DESeq2Report(dds, res = res, project = 'SRP009615',
+        intgroup = c('group', 'gene_target'), outdir = '.',
+        output = 'SRP009615-results')
+}
 ```
