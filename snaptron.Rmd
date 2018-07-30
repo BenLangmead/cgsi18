@@ -1,0 +1,73 @@
+---
+title: "snaptron_data"
+output: html_document
+---
+
+```{r}
+library(dplyr)
+library(tidyr)
+library(httr)
+library(parallel)
+```
+
+```{r urls}
+NOVEL_EXON_URL <- 'https://raw.githubusercontent.com/ChristopherWilks/snaptron-experiments/master/data/novel_exons.raw.hg38.tsv'
+SNAPTRON_URL <- 'http://snaptron.cs.jhu.edu'
+ENDPOINT <- 'snaptron'
+```
+
+```{r snaptron_query}
+snaptron_tidy_query <- function(compilation, query) {
+  url <- paste0(SNAPTRON_URL, '/', compilation, '/', ENDPOINT, '?', query)
+  m <- read.table(url, sep='\t', header=T)
+  if(nrow(m) == 0) {
+    list(url=url, junctions=NULL, samples=NULL)
+  } else {
+    list(
+      url=url,
+      junctions=m %>% select(-DataSource.Type, -samples),
+      samples=m %>%
+        select(snaptron_id, samples) %>%
+        mutate(samples=sub('^,', '', samples)) %>%
+        separate_rows(samples, sep=',') %>%
+        separate(samples, into=c('sample', 'count'))
+    )
+  }
+}
+```
+
+```{r novel_exons}
+exons <- read.table(NOVEL_EXON_URL, sep='\t', header=T) %>% 
+  sample_n(100) %>%
+  separate(chr.start.end.strand, into=c('chr', 'start.end', 'strand'), sep=':') %>%
+  separate(start.end, into=c('start', 'end'), sep='-', convert=T) %>%
+  mutate(start=start-1, end=end+1) %>%
+  gather(start, key=end, value=coord, start, end) %>%
+  mutate(either=ifelse(end=='start', 2, 1)) %>%
+  mutate(validated_by_RT_PCR=validated_by_RT_PCR != '') %>%
+  mutate(validated_by_resequencing=validated_by_resequencing != '')
+```
+
+```{r bulk_query_1by1}
+project <- 'srav2'
+start.time <- Sys.time()
+queries <- paste0('regions=chr', exons$chr, ':', exons$coord, '-', exons$coord,
+                  '&either=', exons$either, '&rfilter=strand:', exons$strand,
+                  '&rfilter=samples_count>:1')
+resps <- mclapply(queries, function(x) {snaptron_tidy_query(project, query=x)}, mc.cores=16)
+end.time <- Sys.time()
+print(paste('Took', end.time - start.time))
+```
+
+```{r}
+ls <- lapply(resps,
+    function(x) { if(is.null(x$junctions)) { 0 } else { sum(x$junctions$samples_count) }})
+data.frame(
+        counts=unlist(ls),
+        gene=exons$gene,
+        val_reseq=exons$validated_by_resequencing,
+        val_rt=exons$validated_by_RT_PCR) %>%
+    group_by(gene) %>%
+    summarize(counts=sum(counts), val_reseq=val_reseq[1], val_rt=val_rt[1])
+```
+
