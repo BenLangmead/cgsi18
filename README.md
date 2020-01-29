@@ -18,7 +18,7 @@ Thus, all the relevant code can be found in these files:
 
 * `jx1.Rmd`
 * `recount.Rmd`
-* `snaptron.py`
+* `snaptron.Rmd`
 
 ## Related links
 
