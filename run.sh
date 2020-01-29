@@ -1,7 +1,7 @@
 #!/bin/sh
 
 docker run --name tidy --rm \
-    -e PASSWORD=snaptron-data \
-    -p 8787:8787 -d $* rocker/tidyverse:3.5.1
+    -v `pwd`:/git \
+    -p 8787:8787 -d $* benlangmead/cgsi-2018
 
 ./wait-for-it.sh localhost:8787 -- open http://localhost:8787

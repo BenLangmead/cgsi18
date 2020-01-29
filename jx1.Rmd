@@ -4,18 +4,20 @@ output: html_document
 ---
 
 ```{r}
-library(data.table)
-library(tidyr)
 library(plyr)
 library(dplyr)
 library(ggplot2)
+library(data.table)
+library(tidyr)
+library(bit64)
+library(cowplot)
 ```
 
 Change this to the base directory of where you downloaded the Snaptron data.  Use the `get.sh` script to obtain the Snaptron data:
 
 ```{r setup}
 # pre-computed
-knitr::opts_knit$set(root.dir = '~/snaptron_data')
+knitr::opts_knit$set(root.dir = '~/git/snaptron-explore')
 ```
 
 Read a Snaptron-style metadata file.
@@ -93,20 +95,36 @@ jx_srav2_cumulative <- prepare_cumulative(jx_srav2)
 Make the cumulative-annotated plot.
 
 ```{r}
-cumulative_plot <- function(jx_cumulative) {
+cumulative_plot <- function(jx_cumulative, inset=F, xmn=-1, xmx=-1, ymn=-1, ymx=-1) {
     jx_cumulative$category <- plyr::mapvalues(jx_cumulative$category,
         c('ann_cum', 'both_cum', 'neither_cum', 'one_cum'),
         c('Annotated', 'Exon Skip', 'Neither Annotated', 'One Annotated'))
-    ggplot(jx_cumulative, aes(x=samples_count, y=count, color=category)) +
+    if(!inset) {
+        xmn <- 0
+        xmx <- max(jx_cumulative$samples_count)
+        ymn <- 0
+        ymx <- 750000
+    }
+    pl <- ggplot(jx_cumulative, aes(x=samples_count, y=count, color=category)) +
         geom_line() +
-        coord_cartesian(xlim=c(0, max(jx_cumulative$samples_count)*0.5), ylim=c(0, 750000)) +
-        labs(x='Jxs appearing in at least this # samples', y='Count') +
+        coord_cartesian(xlim=c(xmn, xmx), ylim=c(ymn, ymx)) +
         theme_bw()
+    if(inset) {
+        pl + theme(legend.position = "none") + labs(x='', y='') +
+             geom_vline(xintercept=nrow(meta_srav2)/10.0)
+    } else {
+        pl + labs(x='Jxs appearing in at least this # samples', y='Count') +
+             theme(legend.position = c(0.8, 0.25), legend.title = element_blank())
+    }
 }
-```
 
-```{r cum_plot_srav2}
-cumulative_plot(jx_srav2_cumulative)
+plot_main <- cumulative_plot(jx_srav2_cumulative)
+plot_insert <- cumulative_plot(jx_srav2_cumulative, inset=T,
+    xmn=4200, xmx=5800, ymn=180000, ymx=250000)
+plot.with.inset <-
+  ggdraw() + draw_plot(plot_main) +
+  draw_plot(plot_insert, x = 0.43, y = .41, width = .55, height = .55)
+plot.with.inset
 ```
 
 Because the cumulative-annotated plot makes it hard to discern particular percentages, we summarize some in a table.
